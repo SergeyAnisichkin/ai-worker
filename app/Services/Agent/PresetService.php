@@ -290,7 +290,12 @@ class PresetService implements PresetServiceInterface
             // First try to test configuration if method exists
             if (method_exists($engine, 'testConnection')) {
                 // Create a temporary engine instance with the config for testing
-                $tempEngine = new $engineClass($engine->http ?? app('Illuminate\Http\Client\Factory'), '', $config);
+                $tempEngine = new $engineClass(
+                    $engine->http ?? app('Illuminate\Http\Client\Factory'),
+                    $this->logger,
+                    app('Illuminate\Cache\CacheManager'),
+                    $config
+                );
                 $testResult = $tempEngine->testConnection();
 
                 if ($testResult) {

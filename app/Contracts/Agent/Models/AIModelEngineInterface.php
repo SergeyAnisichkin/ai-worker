@@ -7,6 +7,8 @@ use App\Contracts\Agent\AiModelResponseInterface;
 
 /**
  * Interface AIModelInterface
+ *
+ * @property ?string $http
  */
 interface AIModelEngineInterface
 {
