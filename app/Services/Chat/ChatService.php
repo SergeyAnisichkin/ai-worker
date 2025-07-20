@@ -11,7 +11,9 @@ use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\Message;
 use App\Models\User;
+use App\Services\Support\TelegramService;
 use Illuminate\Database\Eloquent\Collection;
+use Telegram\Bot\Laravel\Facades\Telegram;
 
 /**
 * Service for managing a general chat
@@ -31,6 +33,7 @@ class ChatService implements ChatServiceInterface
         protected PluginRegistryInterface $pluginRegistry,
         protected ChatStatusServiceInterface $chatStatusService,
         protected Message $messageModel,
+        protected TelegramService $telegramService,
     ) {
     }
 
@@ -72,6 +75,8 @@ class ChatService implements ChatServiceInterface
             'from_user_id' => $user->id,
             'is_visible_to_user' => true
         ]);
+
+        $this->telegramService->send($finalContent);
 
         if (!$this->chatStatusService->getChatStatus()) {
             $this->agentJobService->start();
