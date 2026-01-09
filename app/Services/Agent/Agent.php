@@ -13,7 +13,9 @@ use App\Contracts\Agent\ShortcodeManagerServiceInterface;
 use App\Contracts\Chat\ChatStatusServiceInterface;
 use App\Contracts\Settings\OptionsServiceInterface;
 use App\Models\Message;
+use App\Models\NewsArticle;
 use App\Services\Agent\DTO\ModelRequestDTO;
+use App\Services\Support\TelegramService;
 use Psr\Log\LoggerInterface;
 
 class Agent implements AgentInterface
@@ -44,6 +46,7 @@ class Agent implements AgentInterface
         try {
             // 1. Build context
             $context = $this->buildContext();
+            $context = $this->getCurrentContext();
 
             // 2. Setup and generate response
             $response = $this->generateResponse($context);
@@ -54,6 +57,23 @@ class Agent implements AgentInterface
         } catch (\Exception $e) {
             return $this->handleError($e);
         }
+    }
+
+    protected function getCurrentContext(): array
+    {
+        $lastMessage = Message::query()
+            ->where('role', 'user')
+            ->where('from_user_id', 3)
+            ->latest()
+            ->first();
+
+        return [
+            [
+                'role' => 'user',
+                'content' => $lastMessage->content,
+                'from_user_id' => null
+            ]
+        ];
     }
 
     /**
@@ -135,14 +155,67 @@ class Agent implements AgentInterface
     {
         $output = $response->getResponse();
         $actionsResult = $this->agentActions->runActions($output);
+        $tgService = app(TelegramService::class);
 
-        return $this->messageModel->create([
+        $message = $this->messageModel->create([
             'role' => $actionsResult->getRole(),
             'content' => $actionsResult->getResult(),
             'from_user_id' => null,
             'is_visible_to_user' => $actionsResult->isVisibleForUser(),
             'metadata' => $response->getMetadata()
         ]);
+
+        $content = $message->content;
+        $hasValidData = str_contains($message->content, '###');
+        $this->logger->info('agent', ['hasValidData' => $hasValidData, 'content' => $content,]);
+
+        if (! $hasValidData) {
+            $content = str_replace('#{', '###{', $content);
+        }
+
+        if (str_contains($content, '###')) {
+            $parts = explode('###', $content);
+            $news = $parts[1];
+            $newsArticles = json_decode($news, true);
+
+            if (! is_array($newsArticles)) {
+                $this->logger->error('No array news datalist', ['textList' => $news, 'newsArticles' => $newsArticles]);
+                $tgService->send('Ошибка обработки ответа по уровням новостей');
+
+                return $message;
+            }
+
+            $this->logger->info('Has data, textList', ['count' => count($newsArticles), 'textList' => $news]);
+            $tgMessage = '';
+
+            foreach ($newsArticles as $newsUuid => $newsData) {
+                /* @var NewsArticle $article */
+                $article = NewsArticle::query()->firstWhere('uuid', $newsUuid);
+                $level = $newsData['level'] ?? null;
+
+                if ($article !== null && in_array($level, ['high', 'mid', 'low'])) {
+                    $this->logger->info('level='.$level);
+
+                    if ($level === 'high') {
+                        $tgMessage .= '-- ' . $article->data['title'] . " ($article->url)\n";
+                        $this->logger->info('tgMessage='.$tgMessage);
+                    }
+                    $article->level = $level;
+                    $article->save();
+
+                }
+            }
+
+            if (! empty($tgMessage)) {
+                $tgService->send($tgMessage);
+            } else {
+                $tgService->send('НЕТ важных новостей');
+            }
+        } else {
+            $tgService->send('Нет символов разделителей ###');
+        }
+
+        return $message;
     }
 
     /**

@@ -76,7 +76,7 @@ class ChatService implements ChatServiceInterface
             'is_visible_to_user' => true
         ]);
 
-        $this->telegramService->send($finalContent);
+//        $this->telegramService->send($finalContent);
 
         if (!$this->chatStatusService->getChatStatus()) {
             $this->agentJobService->start();
